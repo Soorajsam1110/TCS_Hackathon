@@ -5,7 +5,31 @@ const STOP = new Set([
   'a', 'an', 'the', 'is', 'it', 'i', 'do', 'to', 'of', 'in', 'on', 'for', 'my', 'me',
   'can', 'how', 'what', 'where', 'should', 'with', 'and', 'or', 'this', 'that', 'be',
   'am', 'are', 'you', 'we', 'get', 'got', 'have', 'has', 'any', 'some', 'about', 'at',
+  // intent words, not object words: they must not match listing text
+  'free', 'cheap', 'need', 'needs', 'want', 'wants', 'looking', 'look', 'borrow',
+  'available', 'anyone', 'spare', 'old', 'used', 'second', 'hand', 'there', 'week',
 ])
+
+// Campus vocabulary vs. listing vocabulary. Keeps the matcher honest without a model.
+const SYNONYMS = {
+  textbook: ['book'], textbooks: ['book'], coursebook: ['book'], notes: ['book'],
+  bicycle: ['bike'], cycle: ['bike'],
+  couch: ['sofa', 'furniture'], sofa: ['furniture'], stool: ['chair', 'furniture'],
+  wardrobe: ['furniture'], drawer: ['furniture'], shelving: ['bookshelf', 'shelf'],
+  screen: ['monitor'], display: ['monitor'], laptop: ['electronics'],
+  lamp: ['lamp', 'light'], light: ['lamp'],
+  pan: ['kitchen'], pot: ['kitchen'], cutlery: ['kitchen'], plates: ['kitchen'],
+  microwave: ['kitchen'], kettle: ['kettle', 'kitchen'], fridge: ['fridge', 'kitchen'],
+  coat: ['jacket', 'clothes'], hoodie: ['clothes'], trousers: ['clothes'], shoes: ['clothes'],
+  calculator: ['calculator', 'lab'], stationery: ['lab'],
+  weights: ['sports'], gym: ['sports'], racket: ['sports'],
+}
+
+const expand = (list) => {
+  const out = new Set(list)
+  for (const w of list) for (const alt of SYNONYMS[w] || []) out.add(alt)
+  return [...out]
+}
 
 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9\s'-]/g, ' ').replace(/\s+/g, ' ').trim()
 const words = (s) => norm(s).split(' ').filter((w) => w && !STOP.has(w))
@@ -68,7 +92,7 @@ const fmt = (n, d = 0) => n.toLocaleString('en-US', { minimumFractionDigits: d, 
 
 /** Search live listings so answers point at real inventory, not generic advice. */
 function searchItems(query, items) {
-  const qw = words(query)
+  const qw = expand(words(query))
   if (!qw.length) return []
   return items
     .filter((it) => it.status === 'available')
@@ -92,6 +116,21 @@ function listingAnswer(query, matches) {
     actions: [
       { label: 'Open in exchange', tab: 'exchange', query: words(query)[0] || '' },
       { label: 'Nothing fits — post a request', tab: 'exchange', post: true },
+    ],
+  }
+}
+
+function noMatchAnswer(query) {
+  return {
+    title: 'Nothing listed for that yet',
+    answer: 'Nobody has posted a match. Two things that usually work:',
+    bullets: [
+      'Post a **wanted** listing — most items here get offered within a couple of days.',
+      'The Move-out Swap Market on Sep 14 is where the volume is; bring nothing, take what you need.',
+    ],
+    actions: [
+      { label: 'Post a wanted listing', tab: 'exchange', post: true },
+      { label: 'See swap market', tab: 'community' },
     ],
   }
 }
@@ -168,6 +207,8 @@ export function respond(query, ctx) {
 
   // "I need a desk lamp" — live inventory beats both advice and event routing.
   if (wantsItem && matches.length) return listingAnswer(q, matches)
+
+  if (wantsItem && !matches.length && !disposal && !energy) return noMatchAnswer(q)
 
   if (stats && has(q, IMPACT_WORDS)) return impactAnswer(stats)
   if (has(q, EVENT_WORDS)) return eventAnswer(events)
